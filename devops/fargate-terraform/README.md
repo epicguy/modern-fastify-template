@@ -1,6 +1,6 @@
 # Terraform scripts for AWS Fargate (Stage and Production)
 
-The scripts in this directory can be run against your AWS account. It includes all the Network infrastructure, load-balancers, Database, and a bastion server for secure DB access.
+The scripts in this directory can be run against your AWS account. It includes all the Network infrastructure, load-balancer, Database, and a bastion server for secure DB access.
 
 ## Initial setup
 

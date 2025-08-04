@@ -22,8 +22,8 @@ docker compose up -d
 tail -f logger/run.out| bunyan -o short & # To watch the logs
 ```
 
-In your browser, visit: http://localhost:8600/api/v1/Ping
-Also, for observability, visit: http://localhost:8600/api/v1/Health (user: 'your', pass: 'pass')
+- In your browser, visit: http://localhost:8600/api/v1/Ping
+- Also, for observability, visit: http://localhost:8600/api/v1/Health (user: 'your', pass: 'pass')
 
 #### Update schema or clear/reset persistent data or take on new codebase
 
@@ -58,6 +58,15 @@ psql --host localhost --port 8605 --user postgres local
 
 select id,jsonb_pretty(log) from monitor limit 1; # Pretty-print
 ```
+
+# Deploy to STAGE or PRODUCTION
+
+Follow the instructions in these additional README's to complete the steps needed for Environment variables and secrets, CI/CD using GitHub actions, and the AWS Infrastructure setup:
+
+- [Spin up your infrastructure using Terraform](devops/fargate-terraform/README.md)
+- [Set up GitHub secrets](support_build/README.md)
+- [Define environment values and seal your secrets](src/milieu/README.md)
+- [Add monitoring of heath endpoints](devops/README.md)
 
 # RUNBOOK
 
