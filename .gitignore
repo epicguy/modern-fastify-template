@@ -1,0 +1,35 @@
+node_modules
+OLD
+TEMP
+dist
+coverage
+.DS_Store
+x
+x?
+*.save
+*.out
+# Milieu & env
+*private.pem
+env-api
+
+## Terraform specific
+# Local .terraform directories
+**/.terraform/*
+# Ignore variables files
+*.auto.tfvars
+# Ignore override files
+*.tfoverride
+# Ignore environment-specific files
+.envrc
+# Ignore transient lock info files created by terraform apply
+.terraform.tfstate.lock.info
+# Crash log files
+crash.log
+crash.*.log
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+# .tfstate files (Some projects might use git for these)
+#*.tfstate
+#*.tfstate.*
+

@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: ./
+      dockerfile: local/Dockerfile-api
+    image: api:pai-local
+    ports:
+      - '8600:8600'
+      - '8614:8614'
+    volumes:
+      - ./src:/src
+      - ./node_modules:/node_modules
+      - ./logger:/logger
+    command: npm run local:dev
+    environment:
+      NODE_ENV: development
+    env_file: env-api
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    build:
+      context: ./
+      dockerfile: local/Dockerfile-postgres
+    image: postgres:local
+    ports:
+      - '8605:5432'
+    environment:
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: local
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: always
+    ports:
+      - 8608:1025
+      - 8609:8025

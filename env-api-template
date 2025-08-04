@@ -1,0 +1,41 @@
+#
+# Local env for docker compose
+#
+# To reload container with changes: docker compose up -d --build
+# To inspect container value: docker compose exec api env | grep <chars>
+#
+milieu=local
+exit_on_signal=true # For nodemon to work when we are catching signals
+
+MONITOR_HEALTH_AUTH=eW91cjpwYXNz # echo -n 'your:pass' | base64
+
+milieu_private_key='
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDTyEIHesSQstuh
+slacx3QYUjDXyMv+TLWXklHOg23k7t/2T32zXHDi8x4WerMvhA8wMHJxSMMljvsw
+Z69ZIcBgea6CG6jn0Fb4xBcNJY6HOGLSagDWm8zknFpeL/DI+oOkKvqXMt1JVqLr
+oO+cMxa2MZAj3Qf7RgzNmCOhTFpqio0iBZg0SFB0eNhHj0SzgXFDigJEkhbz/lh3
+KYh7V9BF4nGBC3Oj/ZFon+fNik13icpW4RLl6GK9MO2nXdMGZ0+sBj2tp5tVO35x
+673QvQkiIjiQldzxUq337HEA8tDdORSxfedVaBCG87Lx/FmeCw7PrTKuDpKkSg6o
+/4NsxgNlAgMBAAECggEAZ7uEoA5BnpCE5KgqJWPKmSkU9HTNenNPVP0d5dXZa5OX
+jplz+/kQ8BDeEWurPeBk4hkwzQ0zTL/CiHyY1kMia/7d+6uZqWYSW4oMsmtNay0y
+tlamr3ejvexZlR3NRlvyQ+SrVoja+9OcPGbZRnx9qOMQ84gNo0W1+rQE67ou5VSw
+X0AgNB6YZaCs/F/qsTiWtywOKgjbk1GhKpC96HJMXk0v+9TDZ/AZsqnyaSRA2YPB
+QZiov3Q+0DOJBpR3xnrBnNoBeazgq22G7MMoJKFZ+I4BixpiBGg1zPTkZz4z0Urm
+YPso+W78FFzt70O4B/xzd/Cb53KLlKZrogYKoNlxxwKBgQD4zIKfAxSTjpub7zcH
+0t25ujXqTGkRckf+VJF0CIbiIKC7X4B4Yhud4tHxkDI0l0dIjvZCjSq3wmuoKCDE
+PoFhBAm8gT/BLP6yrpHHrUnZAtiK8mSBB/Wo+ZwtjMiDQnMz+HGVPSk3LVoK89fW
+vpjY629a9P65QPKvjduLShbrMwKBgQDZ6XiP/hy2zJ1rUzzMqCaTEJ0KtdYb6TGU
+yQ5WMUjHgpRDDF4PhzBcI9bMKsPh+nDTyuR/uhheb7dt23sZnHt2Ptj8SxgvAhyV
+EYyWVUP6vBFOc7LoPpkMn8Xc/5tBg7xOd5XddM6gGFRCgYRMzhSwR7JUf6J5+Fx8
+NQKGbOwXBwKBgFYS4qnCdg7qilkzNDWntP+5NUfesYbQo6mQdlXPUWLP6OuKCbcc
+MfO4ceuBeG0LXST0GKxDjGDQiVA+ub9K5JW8wOWPTZA2UdNdY5/SCrdiLao8W5rs
+NwgDew2jJAeNKK/1Js57v1OQhBM/8w8fF2AMa5TrJ2jN2Gf1yttwgWdTAoGAHHLq
+loHqZcMY2iYnzeA2CQUmO3u51DMBkhcdlAsjIUje6lH3Bbf0jFLxe/4pTJtRl5Tp
+d/NnswyKugDpdVKEm89grK9xHNH9wUhlPksrcNSUvdVFCiUB/i/tuQh10HvOXcAn
+BJ53S1dhyLz39L8C3HC/y2BOafYOvPh+t+YIfIkCgYEAwAInvyFgGiV2CcyVnmv9
+Ydkd1NKmAIq9t2jcuQEJT/aZp4sc0DuqMIqGMsPg1RaKEjEv/X+hnMz5WTYwJroj
+CI7/PFoY8CYmCM4UDmpUe7HnrrgPGg2UAFDvANxbAnL6HHEcyvEGftNYQEYpU3Qu
+w48F+aEzDYGz1lHt3+D1eCM=
+-----END PRIVATE KEY-----
+'

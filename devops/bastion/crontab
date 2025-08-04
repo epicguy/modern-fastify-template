@@ -1,0 +1,23 @@
+##
+## Monitor Health and Endpoints for Prod and Stage
+## Crontab for ec2-user
+## Install: as ec2-user, use `crontab -e` and paste the below lines
+##
+## Also, in .cron_creds put these to lines (without the '##')
+## export discord_url=USE-ALERT-SLACK-CHANNEL-URL
+## export stage_cred=USE-BASICAUTH-CRED-FOR-STATUS-AND-HEALTH-CHECKS-STAGE
+## export prod_cred=USE-BASICAUTH-CRED-FOR-STATUS-AND-HEALTH-CHECKS-PROD
+##
+
+## Bastion daily check-in
+0  9   *   * * . ./.cron_creds; $HOME/bin/daily_cron.sh >> $HOME/cron_daily.log 2>&1
+
+## API Health
+1-59/10  *   *   * * . ./.cron_creds; export cred=$prod_cred; $HOME/bin/monitor_health.sh PROD https://api.__TEMPLATE_DOMAIN__ 600 >> $HOME/cron_health.log 2>&1
+2-59/10  *   *   * * . ./.cron_creds; export cred=$stage_cred; $HOME/bin/monitor_health.sh STAGE https://stage-api.__TEMPLATE_DOMAIN__ 600 >> $HOME/cron_health.log 2>&1
+
+## Web and API Endpoints (/index.html, /Ping)
+3-59/5   *   *   * * . ./.cron_creds; export cred=$prod_cred; $HOME/bin/monitor_endpoints.sh PROD >> $HOME/cron_endpoints.log 2>&1
+4-59/5   *   *   * * . ./.cron_creds; export cred=$stage_cred; $HOME/bin/monitor_endpoints.sh STAGE >> $HOME/cron_endpoints.log 2>&1
+
+

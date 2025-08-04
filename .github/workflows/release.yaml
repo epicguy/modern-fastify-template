@@ -1,0 +1,185 @@
+name: Stage (api-server) build and deploy
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the release branch
+  push:
+    branches: [release]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CLUSTER: __TEMPLATE_PROJ_TAG__-ecs-cluster
+  REPOSITORY_URI: ${{ secrets.AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com
+  REPOSITORY_NAME: __TEMPLATE_PROJ_TAG__-repo
+  REPOSITORY_REGION: us-east-1
+  TASK_FILE: support_build/task-definition-stage.json
+  TASK_FAMILY: __TEMPLATE_PROJ_TAG__-api
+  TASK_IMAGE_PREFIX: ${{ secrets.AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com/__TEMPLATE_PROJ_TAG__-repo
+  TASK_ARN_PREFIX: 'arn:aws:ecs:us-east-1:${{ secrets.AWS_ACCOUNT }}:task-definition/__TEMPLATE_PROJ_TAG__-api-stage-td:'
+  VERSION_PREFIX: api0.0
+  TESTING: 1
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clock when we began
+        id: start_time_ms
+        uses: actions/github-script@v7
+        with:
+          # Will be in ${{ steps.start_time_ms.outputs.result }}
+          script: return Date.now()
+          result-encoding: string
+      - name: Debugging
+        run: aws --version
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # TODO cache: npm
+      - name: Version - Compute version short-sha value (as APP_SHORT_SHA)
+        run: |
+          echo "APP_SHORT_SHA=`echo ${{ github.sha }} | cut -c1-8`" >> $GITHUB_ENV
+      - name: Version - Compute total version tag value (as APP_VERSION)
+        run: |
+          echo "APP_VERSION=${VERSION_PREFIX}.${APP_SHORT_SHA}" >> $GITHUB_ENV
+      - name: Version - Set REPOSITORY
+        run: |
+          echo "REPOSITORY=${REPOSITORY_URI}/${REPOSITORY_NAME}:${APP_VERSION}" >> $GITHUB_ENV
+
+      - name: Build - NPM install (ci)
+        run: npm ci
+      # TODO - name: Build - Test
+      # TODO   run: npm run test:unit
+      # TODO Consider an end-to-end test (maybe in another job that runs in parallel)
+      - name: Build (api) - Create docker image with 'latest' tag
+        run: docker build -f support_build/Dockerfile-ecr -t __TEMPLATE_PROJ_TAG__:latest .
+
+      - name: AWS - Set credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: AWS - ecr login
+        run: aws ecr get-login-password --region ${REPOSITORY_REGION} | docker login --username AWS --password-stdin ${REPOSITORY_URI}
+
+      - name: AWS - Add the ecr-repo-and-version as a tag to our local image (named __TEMPLATE_PROJ_TAG__:latest using the -t above)
+        run: docker tag __TEMPLATE_PROJ_TAG__:latest ${REPOSITORY}
+      - name: AWS - push
+        run: docker push ${REPOSITORY}
+
+      - name: AWS - Inject family/image values into task-definition file
+        run: |
+          sed -i "s/{{AWS_ACCOUNT}}/${{ secrets.AWS_ACCOUNT }}/g" ./${TASK_FILE}
+          sed -i "s/{{family}}/${TASK_FAMILY}/g" ./${TASK_FILE}
+          sed -i "s#{{image_tag}}#${TASK_IMAGE_PREFIX}:${APP_VERSION}#g" ./${TASK_FILE}
+          sed -i "s#{{image}}#${TASK_IMAGE_PREFIX}:${APP_VERSION}#g" ./${TASK_FILE}
+      - name: AWS - register-task-definition
+        run: echo "REGISTERED_TASK_ARN=`aws ecs register-task-definition --cli-input-json file://./${TASK_FILE} --region ${REPOSITORY_REGION} --query 'taskDefinition.taskDefinitionArn' --output text`" >> $GITHUB_ENV
+      - name: AWS - Verify REGISTERED_TASK_ARN
+        if: ${{ ! startsWith( env.REGISTERED_TASK_ARN, env.TASK_ARN_PREFIX) }}
+        uses: actions/github-script@v3
+        with:
+          script: core.setFailed( '${{ format( 'Did not get {0} ({1}) (check-prefix:{2})', 'REGISTERED_TASK_ARN', env.REGISTERED_TASK_ARN, env.REPOSITORY_URI ) }}' )
+
+      - name: AWS - update service
+        run: aws ecs update-service --cluster ${CLUSTER} --service ${TASK_FAMILY}-stage-service --task-definition ${REGISTERED_TASK_ARN}
+
+      - name: Notification prep discord links
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: notification_prep_discord
+        uses: actions/github-script@v7
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        with:
+          script: |
+            // Walk the json commits array and create a list of [message](url) (as markup links)
+            const commits = JSON.parse(process.env.COMMITS)
+            return commits? commits.map((c)=> `\u2022 [${c.message.split('\n')[0]}](${c.url})`).join("\n") : 'n/a'
+          result-encoding: string
+      - name: Notification prep
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: notification_prep
+        uses: actions/github-script@v7
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        with:
+          script: |
+            // Walk the json commits array and create a list of <url|message> (as markup links)
+            const commits = JSON.parse(process.env.COMMITS)
+            return commits? commits.map((c)=> `\u2022 <${c.url}|${c.message}>`).join("\\n") : 'n/a'
+          result-encoding: string
+      - name: Compute total time it took
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: duration
+        uses: actions/github-script@v7
+        with:
+          # Will be in ${{ steps.duration.outputs.result }}
+          script: |
+            const start_ms = ${{ steps.start_time_ms.outputs.result }}
+            const duration = Math.round((Date.now() - start_ms)/1000)
+            const minutes = Math.trunc((duration / 60))
+            const seconds = duration - minutes * 60
+            const out = []
+            if (minutes) out.push( `${minutes} min`)
+            if (seconds) out.push( `${seconds} sec`)
+            return out.join(' ')
+          result-encoding: string
+
+      #  by ${{ github.event.head_commit.author.name }}
+      - name: Notification DISCORD
+        uses: sarisia/actions-status-discord@v1
+        if: always() # Pick up events even if the job fails or is canceled.
+        env:
+          STAGE_DEPLOY: '**Stage API Deployment: https://stage-api.__TEMPLATE_DOMAIN__/api/v1/Ping**' # Bold
+          JOB_STATS: '[#${{ github.run_number }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}/checks) ${{ job.status }} after ${{ steps.duration.outputs.result }}'
+          REPO_LINK: '[${{ github.repository }}](https://github.com/${{ github.repository }})'
+          COMMIT_LINK: '[${{env.APP_SHORT_SHA}}](https://github.com/${{ github.repository }}/tree/${{env.APP_SHORT_SHA}})'
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          nodetail: true # implies noprefix nocontext
+          notimestamp: true
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/Octocat.png
+          color: ${{ job.status }} === 'success' && '#22bb33' || (${{ job.status }} === 'failure' && '#bb2124' || '#f0ad4e')
+          title: ${{env.STAGE_DEPLOY}}
+          #url: https://stage-api.__TEMPLATE_DOMAIN__/api/v1/Ping
+          # Single asterisk is italics, double is bold, triple is both
+          description: |
+            ${{ github.workflow }} - ${{env.JOB_STATS}}
+            ${{env.REPO_LINK}} (${{env.COMMIT_LINK}})
+            *Commits for this merge:*
+            ${{ steps.notification_prep_discord.outputs.result }}
+
+      - name: Notification SLACK
+        uses: 8398a7/action-slack@v3
+        if: ${{ !always() }} # Pick up events even if the job fails or is canceled.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+          COLOR: ${{ job.status }} === 'success' && 'good' || (${{ job.status }} === 'failure' && 'danger' || 'warning')
+          JOB_STATS: '#${{ github.run_number }} ${{ job.status }} after ${{ steps.duration.outputs.result }}'
+          STAGE_DEPLOY: '*Stage API Deployment: https://stage-api.__TEMPLATE_DOMAIN__/api/vi/Ping*'
+          REPO_LINK: '<https://github.com/${{ github.repository }}|${{ github.repository }}>'
+          COMMIT_LINK: '<https://github.com/${{ github.repository }}/tree/${{env.APP_SHORT_SHA}}|${{env.APP_SHORT_SHA}}>'
+        with:
+          status: custom
+          fields: workflow,job,commit,repo,ref,author,took,message
+          custom_payload: |
+            {
+              attachments: [{
+                color: "${{env.COLOR}}",
+                text: `${{ github.workflow }} - ${{env.JOB_STATS}}\n${{env.STAGE_DEPLOY}}\n\n${{env.REPO_LINK}} (${{env.COMMIT_LINK}})`
+              },{
+                color: "${{env.COLOR}}",
+                text: "_Commits for this merge:_\n${{ steps.notification_prep.outputs.result }}"
+              }]
+            }

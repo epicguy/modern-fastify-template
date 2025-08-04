@@ -1,0 +1,57 @@
+baseUrl: 'http://{{.host}}/api/v1'
+randomEmail: 'shelby__{{10 | randAlpha}}@dtsol.com'
+randomEmail_2: 'shelby__{{10 | randAlpha}}@dtsol.com'
+randomEmail_3: 'shelby__{{10 | randAlpha}}@dtsol.com'
+dataDirectory: e2e/data
+s3Bucket: '__TEMPLATE_PROJ_TAG__-s3-local-uploads'
+deepequal:
+  good:
+    statuscode: 200
+    bodyjson:
+      success: true
+      uuid__len: 36
+  slow: { timeseconds__lt: 5 }
+  sluggish: { timeseconds__lt: 3 }
+  fast: { timeseconds__lt: 1 }
+  somewhatFast: { timeseconds__lt: 2 }
+  tokenNoRole:
+    bodyjson:
+      accessToken__regex: '^[A-Za-z0-9_-]{38,90}[.][A-Za-z0-9_-]{43,44}$'
+      refreshToken__regex: '^[a-zA-Z0-9]{16}$'
+      tokenType: bearer
+      expires: 900
+      info:
+        id__typeof: number
+        role: ''
+        screen_name: null
+  tokenUserRole:
+    bodyjson:
+      accessToken__regex: '^[A-Za-z0-9_-]{38,90}[.][A-Za-z0-9_-]{43,44}$'
+      refreshToken__regex: '^[a-zA-Z0-9]{16}$'
+      tokenType: bearer
+      expires: 900
+      info:
+        id__typeof: number
+        role: 'user'
+        screen_name__regex: '^[^<>]{3,48}$'
+  user:
+    bodyjson:
+      user:
+        id__typeof: number
+        screen_name: test_user
+        avatar_file: null
+  user_2:
+    bodyjson:
+      user:
+        id__typeof: number
+        screen_name: test_user_2
+        avatar_file__regex: '^(null|[a-f0-9]{16}[.](jpg|jpeg|png))$'
+  missingToken:
+    statuscode: 401
+    bodyjson:
+      code: bearer_token
+      message: Missing or invalid authorization header (bearer)
+  missingRole:
+    statuscode: 403
+    bodyjson:
+      code: ROLE

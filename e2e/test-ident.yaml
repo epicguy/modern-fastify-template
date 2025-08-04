@@ -1,0 +1,432 @@
+# All ident endpoints
+name: all-ident
+
+testcases:
+  - name: get ping (confirm server is up and running)
+    steps:
+      - type: http
+        method: GET
+        url: '{{.baseUrl}}/Ping'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast]
+        assertions:
+          - result.statuscode MustEqual 200
+          - result.timeseconds MustBeLessThan 1
+  #
+  # Check endpoints not requiring a token (/Ident/_create,_verify,_refresh)
+  #
+
+  - name: Sad require initial params
+    steps:
+      - type: http
+        range:
+          - { verb: post, url: /Ident/_create }
+          - { verb: post, url: /Ident/_verify }
+          - { verb: post, url: /Ident/_refresh }
+        url: '{{.baseUrl}}{{.value.url}}'
+        method: '{{ .value.verb }}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'ISSUE_COUNT_[12]'
+
+  - name: Sad /Ident/_create require valid params
+    steps:
+      - type: http # Missing either email or option
+        headers:
+          Content-Type: application/json
+        range:
+          -
+          - email:
+          - option:
+          - email:
+            option:
+          - option:
+            email:
+        url: '{{.baseUrl}}/Ident/_create'
+        method: post
+        body: '{{.value | toJSON}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'ISSUE_COUNT_[12]'
+            message__regex: ^(|email must exist)(; )?(|option must exist)$
+      - type: http # Both exist, but not right
+        headers:
+          Content-Type: application/json
+        range:
+          - { email: '', option: '' }
+          - { email: a, option: '' }
+          - { email: '     a', option: '' }
+          - { email: a, option: '' }
+          - { email: 'a      ', option: '' }
+          - { email: a@, option: '' }
+          - { email: a@b, option: '' }
+          - { email: '@b', option: '' }
+          - { email: a@b., option: '' }
+          - { email: '@b.c', option: '' }
+          - { email: a@.c, option: '' }
+          - { email: a.a@.c, option: '' }
+          - { email: a.a@b..c, option: '' }
+          - { email: a.a@b..c, option: anyRole }
+          - { email: a.a@b.., option: anyRole }
+          - { email: a.a@b..c, option: anyRole }
+          - { email: a@b.c, option: ' anyRole' }
+          - { email: a@b.c, option: 'bogus' }
+          - { email: bogus, option: 'bogus' }
+        url: '{{.baseUrl}}/Ident/_create'
+        method: post
+        body: '{{.value | toJSON}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'ISSUE_COUNT_[12]'
+            message__regex: ^(|email (not minlength 5|fails to match \(email\)))(; )?(|option not in list \('', 'noRole', 'anyRole'\))$
+
+  - name: SAD expect token
+    steps:
+      - type: http
+        range:
+          - { verb: post, url: /User/_create }
+        url: '{{.baseUrl}}{{.value.url}}'
+        method: '{{ .value.verb }}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: missingToken
+
+  - name: grab emails
+    steps:
+      - type: noop
+        vars:
+          userEmail_1:
+            from: randomEmail
+
+  - name: post auth signin
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_create'
+        body:
+          email: '{{.grab-emails.userEmail_1}}'
+          option: anyRole
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        timeout: 5
+        deepequal: [good]
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_verify'
+        body:
+          email: '{{.grab-emails.userEmail_1}}'
+          keycode: '000000'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        vars:
+          userToken_1: # New user, so empty role
+            from: result.bodyjson.accessToken
+          userRefreshToken_1: # New user, so empty role
+            from: result.bodyjson.refreshToken
+        timeout: 5
+        deepequal: [good, tokenNoRole, fast]
+
+  - name: Refresh user empty role
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_refresh'
+        body:
+          refreshToken: '{{.post-auth-signin.userRefreshToken_1}}'
+          grantType: 'refreshToken'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userReToken_1: # New user, so empty role
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, tokenNoRole, fast]
+
+  - name: Sad /User/_create require valid params
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin.userToken_1}}
+          Content-Type: application/json
+        range:
+          - {}
+          - { encrypt_bip39: '', ether_address: '' }
+          - { encrypt_bip39: 'something', ether_address: '' }
+          - { encrypt_bip39: '', ether_address: '' }
+          - { encrypt_bip39: '', ether_address: 'something or other' }
+          - { encrypt_bip39: '', ether_address: '', screen_name: '' }
+          - { encrypt_bip39: '', ether_address: '', screen_name: '12' }
+          - { encrypt_bip39: '', ether_address: '', screen_name: '12345678911234567892123456789312345678941234567895123456789' }
+          - { encrypt_bip39: '1234567891123456', ether_address: '0x1234567891123456789212345678931234567894', screen_name: '12' }
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        body: '{{.value | toJSON}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'ISSUE_COUNT_[123]'
+
+  - name: Happy /User/_create
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin.userToken_1}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        body:
+          encrypt_bip39: '1234567890123456'
+          publicKey: '39b59425194531f72d1b98E9398006C3De171bf625cF3E00c57d1fC3bA4c6C45'
+          ether_address: '0x2d1b98E9398006C3De171bf625cF3E00c57d1f00'
+          screen_name: 'test_user'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userRefreshToken_1:
+            from: result.bodyjson.refreshToken
+        timeout: 5
+        deepequal: [good, sluggish, tokenUserRole]
+
+  - name: Refresh user upgraded role
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_refresh'
+        body:
+          refreshToken: '{{.happy-/user/_create.userRefreshToken_1}}'
+          grantType: 'refreshToken'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userReToken_1: # New user, so empty role
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, tokenUserRole, fast]
+
+  - name: Sad /User/_update require valid params
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-upgraded-role.userReToken_1}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_update'
+        method: post
+        range:
+          - {}
+          - { screen_name: '' }
+          - { avatar_file: '' }
+          - { screen_name: '', avatar_file: '' }
+        body: '{{.value | toJSON}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'NO_CHANGES'
+
+  - name: get re signin as user
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_create'
+        body:
+          option: anyRole
+          email: '{{.grab-emails.userEmail_1}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal: [good]
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_verify'
+        body:
+          email: '{{.grab-emails.userEmail_1}}'
+          keycode: '000000'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        vars:
+          userRefreshToken_1:
+            from: result.bodyjson.refreshToken
+        timeout: 5
+        deepequal: [good, tokenUserRole, fast]
+
+  - name: Refresh user re signin
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_refresh'
+        body:
+          refreshToken: '{{.get-re-signin-as-user.userRefreshToken_1}}'
+          grantType: 'refreshToken'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userReToken_1: # New user, so empty role
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, tokenUserRole, fast]
+
+  - name: get user/me after refresh
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: GET
+        url: '{{.baseUrl}}/User/me'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast, user]
+
+  - name: update screen_name & re-get user/me
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: POST
+        url: '{{.baseUrl}}/User/_update'
+        body:
+          screen_name: 'test_user_2'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast]
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: GET
+        url: '{{.baseUrl}}/User/me'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast, user_2]
+
+  - name: update avatar_file & re-get user/me
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: POST
+        url: '{{.baseUrl}}/User/_update'
+        body:
+          avatar_file: '123456789abcdef6.jpg'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast]
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: GET
+        url: '{{.baseUrl}}/User/me'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast, user_2]
+
+  - name: Avatar upload sad path
+    steps:
+      - type: http
+        method: GET
+        url: '{{.baseUrl}}/User/_avatar_upload_url'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: missingToken
+
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+          range:
+            - ''
+            - 'invalid'
+          url: '{{.baseUrl}}/User/_avatar_upload_url?imageType={{.value}}'
+          method: GET
+          info: '{{.result.request.method}} {{.result.request.url}}'
+          timeout: 5
+          deepequal:
+            statuscode: 400
+            bodyjson:
+              code__regex: 'ISSUE_COUNT_1'
+              message__regex: ^imageType not in list \('jpg', 'jpeg', 'png'\)$
+
+  - name: Avatar upload happy path
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+          range:
+            - jpg
+            - jpeg
+            - png
+          url: '{{.baseUrl}}/User/_avatar_upload_url?imageType={{.value}}'
+          method: GET
+          info: '{{.result.request.method}} {{.result.request.url}}'
+          timeout: 5
+          deepequal:
+            statuscode: 200
+            bodyjson:
+              success: true
+              uploadUrl__regex: '^https://.*[.]amazonaws[.]com/.*$'
+              avatar_file__regex: '^[a-f0-9]{16}[.](jpg|jpeg|png)$'
+
+  - name: Avatar upload get url
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        url: '{{.baseUrl}}/User/_avatar_upload_url?imageType=jpg&contentType=image/jpeg'
+        method: GET
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal:
+          statuscode: 200
+          bodyjson:
+            success: true
+            uploadUrl__regex: '^https://__TEMPLATE_PROJ_TAG__-s3-local-uploads.s3.us-east-1.amazonaws.com/avatars/.*&X-Amz-Expires=30&.*&x-id=PutObject$'
+            avatar_file__regex: '^[a-f0-9]{16}[.]jpg$'
+        vars:
+          uploadUrl:
+            from: result.bodyjson.uploadUrl
+          avatar_file:
+            from: result.bodyjson.avatar_file
+
+  - name: Avatar file upload
+    steps:
+      - type: http
+        method: PUT
+        url: '{{.avatar-upload-get-url.uploadUrl}}'
+        headers:
+          Content-Type: image/jpeg
+        body: '@e2e/sample-data/test-avatar.jpg'
+        info: 'Request: method={{.result.request.method}} url={{.result.request.url}}'
+        timeout: 10
+        deepequal:
+          statuscode: 200 # S3 body is empty
+        vars:
+          uploadedKey:
+            from: avatar-upload-get-url.avatar_file
+
+  - name: Verify file in S3
+    steps:
+      - type: http
+        method: GET
+        url: 'https://{{.s3Bucket}}.s3.us-east-1.amazonaws.com/avatars/{{.avatar-file-upload.uploadedKey}}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal:
+          statuscode: 200
+          headers:
+            'content-type': 'image/jpeg'
+            'content-length': '287'
+
+  - name: update ident with avatar_file
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.refresh-user-re-signin.userReToken_1}}
+        method: POST
+        url: '{{.baseUrl}}/User/_update'
+        body:
+          avatar_file: '{{.avatar-upload-get-url.avatar_file}}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast]

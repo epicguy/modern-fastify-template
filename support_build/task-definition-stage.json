@@ -1,0 +1,46 @@
+{
+  "family": "{{family}}-stage-td",
+  "taskRoleArn": "arn:aws:iam::{{AWS_ACCOUNT}}:role/__TEMPLATE_PROJ_TAG__-app-ecsTaskExecutionRole",
+  "executionRoleArn": "arn:aws:iam::{{AWS_ACCOUNT}}:role/__TEMPLATE_PROJ_TAG__-app-ecsTaskExecutionRole",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": ".25 vCPU",
+  "memory": ".5GB",
+  "containerDefinitions": [
+    {
+      "name": "__TEMPLATE_PROJ_TAG__-nodejs-api-stage",
+      "image": "{{image}}",
+      "environment": [
+        {
+          "name": "milieu",
+          "value": "stage"
+        },
+        {
+          "name": "image_tag",
+          "value": "{{image_tag}}"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "milieu_private_key",
+          "valueFrom": "arn:aws:ssm:us-east-1:{{AWS_ACCOUNT}}:parameter/__TEMPLATE_PROJ_TAG__-server/stage-env/key-for-env-vars"
+        }
+      ],
+      "portMappings": [
+        {
+          "containerPort": 8600
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/{{family}}-stage-awslog",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      },
+      "essential": true
+    }
+  ]
+}

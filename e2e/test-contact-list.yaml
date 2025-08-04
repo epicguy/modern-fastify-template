@@ -1,0 +1,459 @@
+# All ident endpoints
+name: all-contact-list
+
+testcases:
+  - name: get ping (confirm server is up and running)
+    steps:
+      - type: http
+        method: GET
+        url: '{{.baseUrl}}/Ping'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: [good, fast]
+        assertions:
+          - result.statuscode MustEqual 200
+          - result.timeseconds MustBeLessThan 1
+
+  - name: SAD expect token
+    steps:
+      - type: http
+        range:
+          - { verb: post, url: /User/_add_contact }
+        url: '{{.baseUrl}}{{.value.url}}'
+        method: '{{ .value.verb }}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: missingToken
+
+  - name: grab emails
+    steps:
+      - type: noop
+        vars:
+          userEmail_1:
+            from: randomEmail
+          userEmail_2:
+            from: randomEmail_2
+          userEmail_3:
+            from: randomEmail_3
+
+  - name: post auth signin as user 1
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_create'
+        body:
+          email: '{{.grab-emails.userEmail_1}}'
+          option: anyRole
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        timeout: 5
+        deepequal: [good]
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_verify'
+        body:
+          email: '{{.grab-emails.userEmail_1}}'
+          keycode: '000000'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        vars:
+          userToken: # New user, so empty role
+            from: result.bodyjson.accessToken
+          userContactReference:
+            from: result.bodyjson.info.id
+          userId:
+            from: result.bodyjson.info.id
+        timeout: 5
+        deepequal: [good, tokenNoRole, fast]
+
+  - name: post auth signin as user 2
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_create'
+        body:
+          email: '{{.grab-emails.userEmail_2}}'
+          option: anyRole
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        timeout: 5
+        deepequal: [good]
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_verify'
+        body:
+          email: '{{.grab-emails.userEmail_2}}'
+          keycode: '000000'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        vars:
+          userToken: # New user, so empty role
+            from: result.bodyjson.accessToken
+          userContactReference:
+            from: result.bodyjson.info.id
+          userId:
+            from: result.bodyjson.info.id
+        timeout: 5
+        deepequal: [good, tokenNoRole, fast]
+
+  - name: SAD expect role
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin-as-user-1.userToken}}
+          Content-Type: application/json
+        range:
+          - { verb: post, url: /User/_add_contact }
+        url: '{{.baseUrl}}{{.value.url}}'
+        body: {}
+        method: '{{ .value.verb }}'
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal: missingRole
+
+  # Sad onboard bad params
+  - name: Sad onboard bad params
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin-as-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        range:
+          - { value: '1234.jpg' }
+          - { value: '123456789abcdeF6.jpg' }
+          - { value: '123456789abcdef6.jpx' }
+        body:
+          encrypt_bip39: '1234567890123456'
+          publicKey: '39b59425194531f72d1b98E9398006C3De171bf625cF3E00c57d1fC3bA4c6C45'
+          ether_address: '0x2d1b98E9398006C3De171bf625cF3E00c57d1f00'
+          screen_name: 'contact_user_1'
+          avatar_file: '{{.value.value}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - statuscode: 400
+            bodyjson:
+              code__regex: 'ISSUE_COUNT_1'
+
+  # Fully onboard both users
+
+  - name: onboarded user 1
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin-as-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        body:
+          encrypt_bip39: '1234567890123456'
+          publicKey: '39b59425194531f72d1b98E9398006C3De171bf625cF3E00c57d1fC3bA4c6C45'
+          ether_address: '0x2d1b98E9398006C3De171bf625cF3E00c57d1f00'
+          screen_name: 'contact_user_1'
+          avatar_file: '123456789abcdef6.jpg'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userToken:
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, sluggish, tokenUserRole]
+
+  - name: onboarded user 2
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin-as-user-2.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        body:
+          encrypt_bip39: '1234567890123456'
+          publicKey: '39b59425194531f72d1b98E9398006C3De171bf625cF3E00c57d1fC3bA4c6C45'
+          ether_address: '0x2d1b98E9398006C3De171bf625cF3E00c57d1f00'
+          screen_name: 'contact_user_2'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userToken:
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, sluggish, tokenUserRole]
+
+  - name: Sad /User/_add_contact require valid params
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        range:
+          - {}
+          - { contactEmail: '', contactReference: '' }
+          - { contactEmail: 'something', contactReference: '' }
+          - { contactEmail: '', contactReference: '0' }
+          - { contactEmail: '', contactReference: 'something or other' }
+          - { contactEmail: '', contactReference: '-1' }
+          - { contactEmail: 'something', contactReference: '1234567890' }
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body: '{{.value | toJSON}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body}}'
+        timeout: 5
+        deepequal:
+          statuscode: 400
+          bodyjson:
+            code__regex: 'ISSUE_COUNT_[12]'
+
+  - name: Sad /User/_add_contact as user 1, adding self
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_1}}'
+          contactReference: '{{.post-auth-signin-as-user-1.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - statuscode: 400
+            bodyjson:
+              code: SELF
+
+  - name: Happy /User/_add_contact as user 1
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_2}}'
+          contactReference: '{{.post-auth-signin-as-user-2.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-2.userId | toString}}'
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/me'
+        method: get
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-2.userId | toString}}'
+              contacts:
+                - id: '{{.post-auth-signin-as-user-2.userId}}'
+                  email: '{{.grab-emails.userEmail_2 | toLower}}'
+                  screen_name: 'contact_user_2'
+                  avatar_file: null
+
+  - name: Happy /User/_add_contact as user 2
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-2.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_1}}'
+          contactReference: '{{.post-auth-signin-as-user-1.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-2.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-1.userId | toString}}'
+
+  # Add another user (as user_3), and give user_1 that user as a contact, then do it again for duplicate check
+
+  - name: post auth signin as user 3
+    steps:
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_create'
+        body:
+          email: '{{.grab-emails.userEmail_3}}'
+          option: anyRole
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        timeout: 5
+        deepequal: [good]
+      - type: http
+        method: POST
+        url: '{{.baseUrl}}/Ident/_verify'
+        body:
+          email: '{{.grab-emails.userEmail_3}}'
+          keycode: '000000'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body.email}}'
+        vars:
+          userToken: # New user, so empty role
+            from: result.bodyjson.accessToken
+          userContactReference:
+            from: result.bodyjson.info.id
+          userId:
+            from: result.bodyjson.info.id
+        timeout: 5
+        deepequal: [good, tokenNoRole, fast]
+
+  - name: onboarded user 3
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.post-auth-signin-as-user-3.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_create'
+        method: post
+        body:
+          encrypt_bip39: '1234567890123456'
+          publicKey: '39b59425194531f72d1b98E9398006C3De171bf625cF3E00c57d1fC3bA4c6C45'
+          ether_address: '0x2d1b98E9398006C3De171bf625cF3E00c57d1f00'
+          screen_name: 'contact_user_3'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        vars:
+          userToken:
+            from: result.bodyjson.accessToken
+        timeout: 5
+        deepequal: [good, sluggish, tokenUserRole]
+
+  - name: Happy /User/_add_contact as user 1 add user 3
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_3}}'
+          contactReference: '{{.post-auth-signin-as-user-3.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-3.userId}},{{.post-auth-signin-as-user-2.userId}}'
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/me'
+        method: get
+        info: '{{.result.request.method}} {{.result.request.url}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-3.userId}},{{.post-auth-signin-as-user-2.userId}}'
+              contacts__len: 2
+              contacts__theseIds:
+                - id: '{{.post-auth-signin-as-user-2.userId}}'
+                  email: '{{.grab-emails.userEmail_2 | toLower}}'
+                  screen_name: 'contact_user_2'
+                  avatar_file: null
+                - id: '{{.post-auth-signin-as-user-3.userId}}'
+                  email: '{{.grab-emails.userEmail_3 | toLower}}'
+                  screen_name: 'contact_user_3'
+                  avatar_file: null
+
+  - name: Happy /User/_add_contact as user 1 add user 3 a second time
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_3}}'
+          contactReference: '{{.post-auth-signin-as-user-3.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-3.userId}},{{.post-auth-signin-as-user-2.userId}}'
+
+  - name: Happy /User/_remove_contact as user 1 remove user 2
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_remove_contact'
+        method: post
+        body:
+          contactReference: '{{.post-auth-signin-as-user-2.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-3.userId | toString}}'
+
+  - name: Happy /User/_remove_contact as user 1 remove user 3
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_remove_contact'
+        method: post
+        body:
+          contactReference: '{{.post-auth-signin-as-user-3.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: ''
+
+  - name: Happy /User/_add_contact as user 1 add user 2 back into empty contact list
+    steps:
+      - type: http
+        headers:
+          Authorization: Bearer {{.onboarded-user-1.userToken}}
+          Content-Type: application/json
+        url: '{{.baseUrl}}/User/_add_contact'
+        method: post
+        body:
+          contactEmail: '{{.grab-emails.userEmail_2}}'
+          contactReference: '{{.post-auth-signin-as-user-2.userContactReference}}'
+        info: '{{.result.request.method}} {{.result.request.url}} {{.result.request.body | toJSON}}'
+        timeout: 5
+        deepequal:
+          - good
+          - fast
+          - bodyjson:
+              user:
+                id: '{{.post-auth-signin-as-user-1.userId}}'
+                contact_list: '{{.post-auth-signin-as-user-2.userId | toString}}'

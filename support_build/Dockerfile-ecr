@@ -1,0 +1,16 @@
+## Use specific version of node (should match github-actions build env)
+FROM node:22
+
+## CREATE DIRECTORY
+WORKDIR /
+
+# Node_modules already exist on host, since it was needed for tsc compile
+COPY node_modules ./node_modules
+COPY package.json ./
+COPY src ./src
+
+# EXPOSE PORT FOR LOADBALANCER
+EXPOSE 8600
+
+# RUN PROGRAM
+CMD ["node","src/app.js"]

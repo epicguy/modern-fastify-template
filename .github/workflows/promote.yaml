@@ -1,0 +1,160 @@
+name: Production (api-server) promote and deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CLUSTER: p__TEMPLATE_PROJ_TAG__-ecs-cluster
+  REPOSITORY_URI: ${{ secrets.AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com
+  REPOSITORY_REGION: us-east-1
+  TASK_FILE: support_build/task-definition-prod.json
+  TASK_FAMILY: p__TEMPLATE_PROJ_TAG__-api
+  TASK_IMAGE_PREFIX: ${{ secrets.AWS_ACCOUNT }}.dkr.ecr.us-east-1.amazonaws.com/p__TEMPLATE_PROJ_TAG__-repo
+  TASK_ARN_PREFIX: 'arn:aws:ecs:us-east-1:${{ secrets.AWS_ACCOUNT }}:task-definition/p__TEMPLATE_PROJ_TAG__-api-prod-td:'
+
+jobs:
+  deploy_prod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clock when we began
+        id: start_time_ms
+        uses: actions/github-script@v7
+        with:
+          # Will be in ${{ steps.start_time_ms.outputs.result }}
+          script: return Date.now()
+          result-encoding: string
+      - name: Version - Compute version short-sha value (as APP_SHORT_SHA)
+        run: |
+          echo "APP_SHORT_SHA=`echo ${{ github.sha }} | cut -c1-8`" >> $GITHUB_ENV
+      - name: AWS - Cli login
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup - Extract current stage image using describe-task-definition
+        id: latest_stage_image
+        run: echo "value=`aws ecs describe-task-definition --task-definition ${TASK_FAMILY}-stage-td --query 'taskDefinition.containerDefinitions[0].image'`" >> $GITHUB_OUTPUT
+      - name: Setup - Set IMAGE
+        run: echo "IMAGE=${{ steps.latest_stage_image.outputs.value }}" >> $GITHUB_ENV
+      - name: Setup - Verify image value from aws ecr
+        if: ${{ ! startsWith( env.IMAGE, env.REPOSITORY_URI) }}
+        uses: actions/github-script@v3
+        with:
+          script: |
+            core.setFailed("${{ format( 'Did not get ${0} (${1}) (check-prefix:${2})', 'IMAGE', env.IMAGE, env.REPOSITORY_URI) }}")
+
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: AWS - Inject family/image values into task-definition file
+        run: |
+          sed -i "s/{{AWS_ACCOUNT}}/${{ secrets.AWS_ACCOUNT }}/g" ./${TASK_FILE}
+          sed -i "s/{{family}}/${TASK_FAMILY}/g" ./${TASK_FILE}
+          sed -i "s#{{image}}#${IMAGE}#g" ./${TASK_FILE}
+          sed -i "s#{{image_tag}}#${IMAGE}#g" ./${TASK_FILE}
+      - name: AWS - Debugging
+        run: cat ${TASK_FILE}
+      - name: AWS - register-task-definition
+        run: echo "REGISTERED_TASK_ARN=`aws ecs register-task-definition --cli-input-json file://./${TASK_FILE} --region ${REPOSITORY_REGION} --query 'taskDefinition.taskDefinitionArn' --output text`" >> $GITHUB_ENV
+      - name: Setup - Verify register-task-definition
+        if: ${{ ! startsWith( env.REGISTERED_TASK_ARN, env.TASK_ARN_PREFIX) }}
+        uses: actions/github-script@v3
+        with:
+          script: |
+            core.setFailed("${{ format( 'Did not get ${0} (${1}) (check-prefix:${2})', 'REGISTERED_TASK_ARN', env.REGISTERED_TASK_ARN, env.TASK_ARN_PREFIX) }}")
+      - name: AWS - update serivce
+        run: aws ecs update-service --cluster ${CLUSTER} --service ${TASK_FAMILY}-prod-service --task-definition ${REGISTERED_TASK_ARN}
+
+      - name: Notification prep discord links
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: notification_prep_discord
+        uses: actions/github-script@v7
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        with:
+          script: |
+            // Walk the json commits array and create a list of [message](url) (as markup links)
+            const commits = JSON.parse(process.env.COMMITS)
+            return commits? commits.map((c)=> `\u2022 [${c.message.split('\n')[0]}](${c.url})`).join("\n") : 'n/a'
+          result-encoding: string
+      - name: Notification prep
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: notification_prep
+        uses: actions/github-script@v7
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        with:
+          script: |
+            // Walk the json commits array and create a list of <url|message> (as markup links)
+            const commits = JSON.parse(process.env.COMMITS)
+            return commits? commits.map((c)=> `\u2022 <${c.url}|${c.message}>`).join("\\n") : 'n/a'
+          result-encoding: string
+      - name: Compute total time it took
+        if: always() # Pick up events even if the job fails or is canceled.
+        id: duration
+        uses: actions/github-script@v7
+        with:
+          # Will be in ${{ steps.duration.outputs.result }}
+          script: |
+            const start_ms = ${{ steps.start_time_ms.outputs.result }}
+            const duration = Math.round((Date.now() - start_ms)/1000)
+            const minutes = Math.trunc((duration / 60))
+            const seconds = duration - minutes * 60
+            const out = []
+            if (minutes) out.push( `${minutes} min`)
+            if (seconds) out.push( `${seconds} sec`)
+            return out.join(' ')
+          result-encoding: string
+
+      #  by ${{ github.event.head_commit.author.name }}
+      - name: Notification DISCORD
+        uses: sarisia/actions-status-discord@v1
+        if: always() # Pick up events even if the job fails or is canceled.
+        env:
+          PROD_DEPLOY: '**Prod API Deployment: https://api.__TEMPLATE_DOMAIN__/api/v1/Ping**' # Bold
+          JOB_STATS: '[#${{ github.run_number }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }}/checks) ${{ job.status }} after ${{ steps.duration.outputs.result }}'
+          REPO_LINK: '[${{ github.repository }}](https://github.com/${{ github.repository }})'
+          COMMIT_LINK: '[${{env.APP_SHORT_SHA}}](https://github.com/${{ github.repository }}/tree/${{env.APP_SHORT_SHA}})'
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          nodetail: true # implies noprefix nocontext
+          notimestamp: true
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/Octocat.png
+          color: ${{ job.status }} === 'success' && '#22bb33' || (${{ job.status }} === 'failure' && '#bb2124' || '#f0ad4e')
+          title: ${{env.PROD_DEPLOY}}
+          #url: https://api.__TEMPLATE_DOMAIN__/api/v1/Ping
+          # Single astrisk is italics, double is bold, triple is both
+          description: |
+            ${{ github.workflow }} - ${{env.JOB_STATS}}
+            ${{env.REPO_LINK}} (${{env.COMMIT_LINK}})
+            *Commits for this merge:*
+            ${{ steps.notification_prep_discord.outputs.result }}
+
+      - name: Notification SLACK
+        uses: 8398a7/action-slack@v3
+        if: ${{ !always() }} # Pick up events even if the job fails or is canceled.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }} # required
+          COLOR: ${{ job.status }} === 'success' && 'good' || (${{ job.status }} === 'failure' && 'danger' || 'warning')
+          JOB_STATS: '#${{ github.run_number }} ${{ job.status }} after ${{ steps.duration.outputs.result }}'
+          PROD_DEPLOY: '*Prod API Deployment: https://api.__TEMPLATE_DOMAIN__/api/vi/Ping*'
+          REPO_LINK: '<https://github.com/${{ github.repository }}|${{ github.repository }}>'
+          COMMIT_LINK: '<https://github.com/${{ github.repository }}/tree/${{env.APP_SHORT_SHA}}|${{env.APP_SHORT_SHA}}>'
+        with:
+          status: custom
+          fields: workflow,job,commit,repo,ref,author,took,message
+          custom_payload: |
+            {
+              attachments: [{
+                color: "${{env.COLOR}}",
+                text: `${{ github.workflow }} - ${{env.JOB_STATS}}\n${{env.PROD_DEPLOY}}\n\n${{env.REPO_LINK}} (${{env.COMMIT_LINK}})`
+              },{
+                color: "${{env.COLOR}}",
+                text: "_Commits for this merge:_\n${{ steps.notification_prep.outputs.result }}"
+              }]
+            }

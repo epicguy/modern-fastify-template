@@ -1,0 +1,8 @@
+FROM postgres:16-alpine
+
+# Ordered i.e. db/500_local_initdb.sh
+COPY db/[0-9]* /docker-entrypoint-initdb.d/
+
+# Support files (all Vxxx__xxx.sql and db/load.sql)
+COPY db/init.sql db/load.sql /docker-entrypoint-initdb.d/db/
+COPY db/scripts /docker-entrypoint-initdb.d/db/scripts
